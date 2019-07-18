@@ -26,3 +26,5 @@ Note: this pipeline uses Python, MATLAB, and R, mostly for historical reasons. O
 	process_logs_2.m
 	```
 
+3. **Run analyses and make figures (R)**
+	Run the R-MarkDown file `x-vertices_analysis.Rmd`

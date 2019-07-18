@@ -1,0 +1,454 @@
+---
+title: "X-Vertices Analysis"
+author: "Sarah Herald"
+output:
+  html_document:
+    theme: default
+    highlight: kate
+    df_print: paged
+    toc: yes
+    toc_depth: 2
+---
+
+This is an [R Markdown](https://rmarkdown.rstudio.com) Notebook.
+
+```{r knitr-global, include=FALSE}
+knitr::opts_chunk$set(fig.path = "r-figures/")
+```
+
+## Summary
+
+Two separate models were analyzed: reaction time and accuracy. The data were analyzed using generalized linear mixed effects models.
+
+For the reaction time model, the addition of X-vertices to either the intact or contour-deleted images increased reaction times by about 30ms. Deleting the contours alone increased RTs by about 30ms. Finally, shifting the X-vertices to become L-vertices on the contour-deleted images, increased RTs by about 75ms, more than twice the cost of adding X-vertices (noise) or deleting mid-segment contours. In total, CDL images took about 135ms longer to recognize than the intact images.
+
+For the accuracy model, only the CDL condition had a significantly lower odds ratio. The odds of being correct in the CDL condition were 0.60 times that of the intact image. The CDX image was near-significant (p=0.089) with an odds ratio of 0.82.
+
+## Initial Setup
+
+```{r load-libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(lme4)
+library(sjPlot)
+library(multcomp)
+```
+
+A few notes about the variables used:
+
+1. For the reaction time analysis, only correct and partially correct trials are being used.
+
+2. Accuracy is defined as the odds of correctly or partially correctly naming the object compared to incorrectly naming the object or failing to respond within the time limit provided.
+
+3. Trials with extraneous background noise were not used in any of the analyses.
+
+4. The number of times a stimulus has been shown (including the current trial) is called "repetition." Because repetition effects will eventually saturate, repetition is modeled as (1 - x^-1.5), where x is the number of times the stimulus has been seen. Thus, the repetition values of (1, 2, 3, 4, 5) are transformed into (0, .65, .81, .88, .91). Anything between x^-1.25 and x^-2 seems to work about equally well for the model fit.
+
+5. The "Condition" factor variable is set up so that "o," the intact images with nothing added, is the baseline. Thus, all GLMM estimates for the other conditions (i.e. "cd", "cdx", "cdl", "ox") should be interpreted as the effect of that condition relative to the intact images ("o").
+
+```{r load-data, include=FALSE}
+data_raw <- 
+  read_csv('processed_data/alldata.csv',
+           col_types =
+             list(TrialNum = col_integer(),
+                  Stimulus = col_factor(),
+                  RT = col_double(),
+                  Repetition = col_integer(),
+                  SubjectID = col_factor(),
+                  Condition = col_factor(levels = c("o", "ox", "cd", "cdx",
+                                                    "cdl"), ordered = FALSE),
+                  ScoredResponse = col_factor(levels = c("NaN", "-1", "0", "1",
+                                                         "2"))))
+
+data_cleaned <- data_raw %>%
+  filter(ScoredResponse != "NaN") %>% # One trial is not graded; drop it
+  mutate(Repetition = (1 - Repetition ^ (-1.5))) %>%
+  mutate(ScoredResponse = fct_drop(fct_recode(ScoredResponse, "correct" = "2",
+                                              "partial" = "1",
+                                              "incorrect" = "0",
+                                              "no_response" = "-1")))
+
+data_rt <- data_cleaned %>%
+  filter(ScoredResponse == "correct" | ScoredResponse == "partial") %>%
+  mutate(ScoredResponse = fct_drop(ScoredResponse))
+
+data_acc <- data_cleaned %>%
+  mutate(ScoredResponse =
+           fct_collapse(ScoredResponse, correct = c("correct", "partial"),
+                        incorrect = c("incorrect"))) %>%
+  filter(ScoredResponse == "correct" | ScoredResponse == "incorrect") %>%
+  mutate(ScoredResponse = fct_drop(ScoredResponse)) %>%
+  mutate(ScoredResponse = fct_relevel(ScoredResponse, "correct"))
+```
+
+## Data Summary {.tabset .tabset-fade}
+
+### Reaction Time
+
+```{r table-rt, echo=FALSE}
+data_cleaned %>%
+  group_by(ScoredResponse, Condition) %>%
+  summarise(Average_RT = mean(RT), Std.Dev. = sd(RT), n = n()) %>%
+  arrange(desc(ScoredResponse))
+```
+
+### Accuracy
+
+```{r table-acc, echo=FALSE}
+data_acc %>%
+  mutate(Score = case_when(ScoredResponse == "correct" ~ 100,
+                           ScoredResponse == "incorrect" ~ 0)) %>%
+  group_by(Condition) %>%
+  summarise(Percent_Correct = mean(Score),
+            Std.Dev. = sd(Score), n = n())
+```
+
+## Results {.tabset .tabset-fade}
+
+### Reaction Time
+
+Reaction time is modeled as an Inverse Gaussian distribution with the identity link function as suggested by Lo & Andrews (2015).
+
+Condition and repetition are modeled as fixed effects while SubjectID and Stimulus are modeled as random intercepts.
+
+Whether an answer was graded as fully or partially correct has not been added as a regressor. The number of partially correct trials is much smaller than the correct trials (about 1 partial : 20 correct) and causes issues with model convergence. It's also not clear how meaningful the distinction between the two scores is.
+
+```{r model-rt, echo=TRUE}
+model_rt <- glmer(RT ~ Repetition + Condition
+                  + (1 | SubjectID) + (1 | Stimulus),
+                  data = data_rt,
+                  family = inverse.gaussian(link = "identity"),
+                  glmerControl(optimizer = "bobyqa"))
+```
+
+A table of the results can be seen below.
+<br />
+
+```{r table-model-rt, echo=FALSE, message=FALSE}
+tab_model(model_rt)
+```
+
+### Accuracy
+
+Accuracy is modeled as a Binomial distribution with the logit link function.
+
+Condition and repetition are modeled as fixed effects while SubjectID and Stimulus are modeled as random intercepts.
+
+```{r model-acc, echo=TRUE}
+model_acc <- glmer(ScoredResponse ~ Repetition + Condition
+                   + (1 | SubjectID) + (1 | Stimulus),
+                   data = data_acc,
+                   family = binomial(link = "logit"),
+                   glmerControl(optimizer = "bobyqa"))
+```
+
+A table of the results can be seen below.
+<br />
+
+```{r table-model-acc, echo=FALSE, message=FALSE}
+tab_model(model_acc)
+```
+
+### Multiple Comparisons - RT
+
+A pairwise comparison between all of the conditions (excluding the intact image) can be seen below. The Holm-Bonferroni method is used to correct for multiple comparisons.
+
+```{r table-multcomp-rt, echo=FALSE}
+fx_rt <- fixef(model_rt)
+sig_rt <- summary(glht(model_rt,
+                       linfct = mcp(Condition = c("Tukey"))),
+                  adjusted("holm"))
+sig_rt
+```
+
+### Multiple Comparisons - Accuracy
+
+A pairwise comparison between all of the conditions (excluding the intact image) can be seen below. The Holm-Bonferroni method is used to correct for multiple comparisons.
+
+```{r table-multcomp-acc, echo=FALSE}
+fx_acc <- fixef(model_acc)
+sig_acc <- summary(glht(model_acc, linfct = mcp(Condition = "Tukey")),
+                        adjusted("holm"))
+sig_acc
+```
+
+## Figures {.tabset .tabset-fade}
+
+### Summary
+
+```{r figure-rt-results, echo=FALSE}
+coef_rt <- summary(model_rt)$coefficients
+data_plot_rt <- tibble(conditions = factor(c("OX - O", "CD - O", "CDX - O",
+                                             "CDL - O"),
+                                           levels = c("OX - O", "CD - O",
+                                                      "CDX - O", "CDL - O")),
+                    est = coef_rt[3:6, "Estimate"],
+                    err = coef_rt[3:6, "Std. Error"],
+                    ci_min = c(11.82, 14.84, 35.92, 103.21), # wald ci
+                    ci_max = c(43.82, 46.26, 81.72, 157.00)) # wald ci
+
+ggplot(data_plot_rt, aes(x = conditions, y = est)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = ci_min, ymax = ci_max), width = 0.25) +
+  annotate("text", x = 1, y = 50, label = "**", size = 8) +
+  annotate("text", x = 2, y = 53, label = "***", size = 8) +
+  annotate("text", x = 3, y = 87, label = "***", size = 8) +
+  annotate("text", x = 4, y = 160, label = "***", size = 8) +
+  geom_line(data = tibble(a = c(3, 3, 4, 4), b = c(175, 180, 180, 175)),
+            aes(x = a, y = b)) +
+  annotate("text", x = 3.5, y = 185, label = "***", size = 8) +
+  geom_line(data = tibble(a = c(2, 2, 4, 4), b = c(195, 200, 200, 195)),
+            aes(x = a, y = b)) + 
+  annotate("text", x = 3, y = 205, label = "***", size = 8) +
+  geom_line(data = tibble(a = c(1, 1, 4, 4), b = c(215, 220, 220, 215)),
+            aes(x = a, y = b)) + 
+  annotate("text", x = 2.5, y = 225, label = "***", size = 8) +
+  geom_line(data = tibble(a = c(2, 2, 3, 3), b = c(105, 110, 110, 105)),
+            aes(x = a, y = b)) + 
+  annotate("text", x = 2.5, y = 130, label = ".", size = 12) +
+  geom_line(data = tibble(a = c(1, 1, 3, 3), b = c(125, 130, 130, 125)),
+            aes(x = a, y = b)) + 
+  annotate("text", x = 2, y = 150, label = ".", size = 12) +
+  theme_minimal() +
+  theme(axis.title = element_text(size = rel(1.5)),
+        plot.title = element_text(size = rel(2),
+                                  hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     margin = margin(b = 20)),
+        axis.text = element_text(size = rel(1.3))) +
+  labs(x = "Condition",
+       y = "Reaction Time Difference (ms)")
+       # title = "Effect of image manipulations \n relative to intact image",
+       # subtitle = "Intact Image RT = 1,359ms (95% CI: 1,339 - 1,379)")
+```
+
+```{r figure-error-results, echo=FALSE}
+coef_acc <- summary(model_acc)$coefficients
+data_plot_acc <- tibble(conditions = factor(c("OX ÷ O", "CD ÷ O", "CDX ÷ O",
+                                              "CDL ÷ O"),
+                                            levels = c("OX ÷ O", "CD ÷ O",
+                                                       "CDX ÷ O", "CDL ÷ O")),
+                    est = sapply(coef_acc[3:6, "Estimate"], exp),
+                    err = sapply(coef_acc[3:6, "Std. Error"], exp),
+                    ci_min = c(0.73, 0.69, 0.98, 1.56), # wald ci
+                    ci_max = c(1.26, 1.20, 1.64, 2.53)) # wald ci
+
+ggplot(data_plot_acc, aes(x = conditions, y = est)) +
+  geom_col() +
+  geom_errorbar(aes(ymin = ci_min, ymax = ci_max), width = 0.25) +
+  annotate("text", x = 4, y = 2.6, label = "***", size = 8) +
+  geom_line(data = tibble(a = c(3, 3, 4, 4), b = c(2.85, 2.95, 2.95, 2.85)),
+            aes(x = a, y = b)) +
+  annotate("text", x = 3.5, y = 3, label = "**", size = 8) +
+  geom_line(data = tibble(a = c(2, 2, 4, 4), b = c(3.2, 3.3, 3.3, 3.2)),
+            aes(x = a, y = b)) +
+  annotate("text", x = 3, y = 3.35, label = "***", size = 8) +
+  geom_line(data = tibble(a = c(1, 1, 4, 4), b = c(3.55, 3.65, 3.65, 3.55)),
+            aes(x = a, y = b)) +
+  annotate("text", x = 2.5, y = 3.7, label = "***", size = 8) +
+  geom_line(data = tibble(a = c(2, 2, 3, 3), b = c(1.9, 2, 2, 1.9)),
+            aes(x = a, y = b)) +
+  annotate("text", x = 2.5, y = 2.3, label = ".", size = 12) +
+  # geom_line(data = tibble(a = c(0.5, 4.4), b = c(1, 1)),
+  #           aes(x = a, y = b)) +
+  # annotate("text", x = 2, y = 150, label = ".", size = 12) +
+  theme_minimal() +
+  theme(axis.title = element_text(size = rel(1.5)),
+        plot.title = element_text(size = rel(2),
+                                  hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5,
+                                     margin = margin(b = 20)),
+        axis.text = element_text(size = rel(1.3))) +
+  labs(x = "Condition",
+       y = "Odds Ratio for Errors")
+```
+
+### Reaction Time
+
+The black line on each figure indicates no effect. The errorbars indicate the 95% confidence interval.
+
+<br />
+
+```{r plot-fixed-rt, echo=FALSE, message=FALSE, warning=FALSE}
+plt <- plot_model(model_rt, vline.color = "black",
+                  title = str_c("Estimated fixed effects of condition and ", 
+                                "stimulus repetition"),
+                  axis.title = c("Reaction Time (ms)"), wrap.title = 35,
+                  ci.lvl = .95)
+plt + theme(text = element_text(size = 18))
+```
+
+```{r plot-random-rt, echo=FALSE, fig.height=10, fig.width=6, message=FALSE, warning=FALSE}
+plot_model(model_rt, type = "re", vline.color = "black", sort.est = "sort.all",
+           grid = FALSE, ci.lvl = .95)
+```
+
+### Accuracy
+
+The black line on each figure indicates no effect. The errorbars indicate the 95% confidence interval.
+
+<br />
+
+```{r plot-fixed-acc, echo=FALSE, message=FALSE, warning=FALSE}
+plt <- plot_model(model_acc, vline.color = "black",
+                  title = str_c("Estimated fixed effects of condition and ", 
+                                "stimulus repetition"),
+                  axis.title = c("Log Odds"), wrap.title = 35,
+                  ci.lvl = .95)
+plt + theme(text = element_text(size = 18))
+```
+
+```{r plot-random-acc, echo=FALSE, fig.height=10, fig.width=6, message=FALSE, warning=FALSE}
+plot_model(model_acc, type = "re", vline.color = "black", sort.est = "sort.all",
+           grid = FALSE, ci.lvl = .95)
+```
+
+## Alternative Models {.tabset .tabset-fade}
+
+A look at alternative models to see why using the Inverse Gaussian distribution is the best solution.
+
+### Model Summaries
+
+#### Raw RT
+
+```{r model-raw-rt, echo=FALSE, message=FALSE, warning=FALSE}
+model_rt_raw <- lmer(RT ~ Repetition + Condition
+                  + (1 | SubjectID) + (1 | Stimulus),
+                  data = data_rt)
+tab_model(model_rt_raw)
+```
+
+#### Log RT
+
+```{r model-log-rt, echo=FALSE, message=FALSE, warning=FALSE}
+model_rt_log <- lmer(log(RT) ~ Repetition + Condition
+                  + (1 | SubjectID) + (1 | Stimulus),
+                  data = data_rt)
+tab_model(model_rt_log)
+```
+
+### Residuals
+
+#### Raw RT
+
+```{r plot-raw-resid, echo=FALSE}
+plot(fitted(model_rt_raw),resid(model_rt_raw))
+```
+
+#### Log RT
+
+```{r plot-log-resid, echo=FALSE}
+plot(fitted(model_rt_log),resid(model_rt_log))
+```
+
+#### GLMM RT - Inverse Gaussian Distribution with Identity Link
+
+```{r plot-glmm-resid, echo=FALSE}
+plot(fitted(model_rt),resid(model_rt))
+```
+
+## Technical Notes
+
+1. Model fails to converge when the random effect of Stimulus is allowed to vary across Conditions (1 + Condition | Stimulus) vs (1 | Stimulus). Double-checked with allFit.
+
+2. Model fails to converge with (1 + Condition | SubjectID) compared to (1 | SubjectID). This is likely due to there being little variance in the random slopes for conditions across subjects.
+
+3. The above models can be made to converge. Multiple iterations of the model are run with each starting where the previous model stopped. The model converges around the third iteration.
+
+4. The Inverse Gaussian distribution provides a much better model fit than the Gamma distribution in terms of marginal R^2. I don't know if the AIC and BIC can be compared between the two models, but I've still provided them below.
+<br />
+Inverse Gaussian (RT Model): Marginal R^2 = 0.671; AIC = 197799.1; BIC = 197865.8
+<br />
+Gamma (RT Model): Marginal R^2 = 0.324; AIC = 179634.0; BIC = 179700.8
+
+## References
+
+### Papers
+
+Lo, S., & Andrews, S. (2015). To transform or not to transform: using generalized linear mixed models to analyse reaction time data. *Frontiers in Psychology, 6*. [doi:10.3389/fpsyg.2015.01171](https://doi.org/10.3389/fpsyg.2015.01171)
+
+### R Packages
+
+Generated using a function from [Stack Overflow](https://stackoverflow.com/questions/15688758/r-stats-citation-for-a-scientific-paper)
+
+RStudio Team (2016). _RStudio: Integrated Development Environment for R_.
+RStudio, Inc., Boston, MA. <URL: http://www.rstudio.com/>.
+
+R Core Team (2018). _R: A Language and Environment for Statistical Computing_. R
+Foundation for Statistical Computing, Vienna, Austria. <URL:
+https://www.R-project.org/>.
+
+Hothorn T, Bretz F, Westfall P (2008). “Simultaneous Inference in General
+Parametric Models.” _Biometrical Journal_, *50*(3), 346-363.
+
+Hothorn T (2019). _TH.data: TH's Data Archive_. R package version 1.0-10, <URL:
+https://CRAN.R-project.org/package=TH.data>.
+
+Venables WN, Ripley BD (2002). _Modern Applied Statistics with S_, Fourth
+edition. Springer, New York. ISBN 0-387-95457-0, <URL:
+http://www.stats.ox.ac.uk/pub/MASS4>.
+
+Therneau T (2015). _A Package for Survival Analysis in S_. version 2.38, <URL:
+https://CRAN.R-project.org/package=survival>.
+
+Terry M. Therneau, Patricia M. Grambsch (2000). _Modeling Survival Data:
+Extending the Cox Model_. Springer, New York. ISBN 0-387-98784-3.
+
+Genz A, Bretz F, Miwa T, Mi X, Leisch F, Scheipl F, Hothorn T (2018). _mvtnorm:
+Multivariate Normal and t Distributions_. R package version 1.0-8, <URL:
+https://CRAN.R-project.org/package=mvtnorm>.
+
+Genz A, Bretz F (2009). _Computation of Multivariate Normal and t
+Probabilities_, series Lecture Notes in Statistics. Springer-Verlag, Heidelberg.
+ISBN 978-3-642-01688-2.
+
+Lüdecke D (2019). _sjlabelled: Labelled Data Utility Functions (Version
+1.0.16)_. doi: 10.5281/zenodo.1249215 (URL:
+http://doi.org/10.5281/zenodo.1249215), <URL:
+https://CRAN.R-project.org/package=sjlabelled>.
+
+Lüdecke D (2018). “sjmisc: Data and Variable Transformation Functions.” _Journal
+of Open Source Software_, *3*(26), 754. doi: 10.21105/joss.00754 (URL:
+http://doi.org/10.21105/joss.00754).
+
+Lüdecke D (2018). _sjPlot: Data Visualization for Statistics in Social Science_.
+doi: 10.5281/zenodo.1308157 (URL: http://doi.org/10.5281/zenodo.1308157), R
+package version 2.6.2, <URL: https://CRAN.R-project.org/package=sjPlot>.
+
+Bates D, Mächler M, Bolker B, Walker S (2015). “Fitting Linear Mixed-Effects
+Models Using lme4.” _Journal of Statistical Software_, *67*(1), 1-48. doi:
+10.18637/jss.v067.i01 (URL: http://doi.org/10.18637/jss.v067.i01).
+
+Bates D, Maechler M (2018). _Matrix: Sparse and Dense Matrix Classes and
+Methods_. R package version 1.2-15, <URL:
+https://CRAN.R-project.org/package=Matrix>.
+
+Wickham H (2019). _forcats: Tools for Working with Categorical Variables
+(Factors)_. R package version 0.4.0, <URL:
+https://CRAN.R-project.org/package=forcats>.
+
+Wickham H (2019). _stringr: Simple, Consistent Wrappers for Common String
+Operations_. R package version 1.4.0, <URL:
+https://CRAN.R-project.org/package=stringr>.
+
+Wickham H, François R, Henry L, Müller K (2019). _dplyr: A Grammar of Data
+Manipulation_. R package version 0.8.0.1, <URL:
+https://CRAN.R-project.org/package=dplyr>.
+
+Henry L, Wickham H (2019). _purrr: Functional Programming Tools_. R package
+version 0.3.0, <URL: https://CRAN.R-project.org/package=purrr>.
+
+Wickham H, Hester J, Francois R (2018). _readr: Read Rectangular Text Data_. R
+package version 1.3.1, <URL: https://CRAN.R-project.org/package=readr>.
+
+Wickham H, Henry L (2018). _tidyr: Easily Tidy Data with 'spread()' and
+'gather()' Functions_. R package version 0.8.2, <URL:
+https://CRAN.R-project.org/package=tidyr>.
+
+Müller K, Wickham H (2019). _tibble: Simple Data Frames_. R package version
+2.0.1, <URL: https://CRAN.R-project.org/package=tibble>.
+
+Wickham H (2016). _ggplot2: Elegant Graphics for Data Analysis_. Springer-Verlag
+New York. ISBN 978-3-319-24277-4, <URL: http://ggplot2.org>.
+
+Wickham H (2017). _tidyverse: Easily Install and Load the 'Tidyverse'_. R
+package version 1.2.1, <URL: https://CRAN.R-project.org/package=tidyverse>.

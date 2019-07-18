@@ -5,19 +5,19 @@
 ## How does adding noise to line drawings affect our recognition?
 In 1968, Adolfo Guzman published an influential dissertation in which he described how vertices in contours can be used to segment complex shapes, e.g., identifying the volumes in this drawing below:
 
-![Guzman's "Bridge"](https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig1.png)
+<img src="https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig1.png" width="300" />
 
 Guzman predicted that L-vertices (see the upper right corner of surface #15 above) would be more important for segmentation of volumes than X-vertices, where two lines intersect but do not terminate. We tested this prediction by having subjects verbally name line drawings under 5 conditions, shown below. Of particular interest are the CDX condition and the CDL condition, as they are exactly matched except that the noisy line segments are translated slightly between conditions.
 
-![Example Stimuli](https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig3.png)
+<img src="https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig3.png" width="450" />
 
 We evaluated how quickly and accurately subjects named drawings in each condition, then assessed the relative cost of adding visual noise in the form of X-vertices or L-vertices. We found that adding L-vertices to a drawing was far more disruptive than adding X-vertices; the cost on subjects' reaction times (see below) was twice as high for our CDL condition than the CDX condition. Subjects were also twice as likely to make an error in naming in this condition!
 
-![Reaction Times](https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig4.png)
+<img src="https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig4.png" width="450" />
+<img src="https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig5.png" width="450" />
 
-![Error Rates](https://github.com/eshedmargalit/margalit_et_al_2019_vertices/blob/master/paper_figures/fig5.png)
 
-Our results support Guzman's insights from computer vision over 50 years ago. We argue that these insights, founded in an appreciation for explicit shape-based models of perception, can complement ongoing work in modern computer vision, e.g., deep convolutional neural networks for perception. For more information, please check out our [preprint](https://psyarxiv.com/cje3y/), and feel free to contact me with any questions or comments.
+Our results support Guzman's predictions from computer vision over 50 years ago, that X-vertices should be irrelevant for segmentation, whereas L-vertices should influence perception heavily. We argue that these insights, founded in an appreciation for explicit shape-based models of perception, can complement ongoing work in modern computer vision, e.g., deep convolutional neural networks. For more information, please check out our [preprint](https://psyarxiv.com/cje3y/), and feel free to contact me with any questions or comments.
 
 ## Running the scripts
 ###### _From raw data to figures_
